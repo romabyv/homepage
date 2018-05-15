@@ -1,0 +1,141 @@
+0 - Накатить бэкап базы
+mongoimport -db sampleDB ./users.json
+
+1 - Найти средний возраст людей в системе
+> var avg = db.users.aggregate([{"$group": {"_id": null, "average_age": { "$avg": "$age" }}}]).next().average_age
+> avg
+30.38862559241706
+
+2 - Найти средний возраст в штате Аляска
+> var avg_alaska = db.users.aggregate([ {$match: {"address": /Alaska/g}}, {$group: {_id: null, average_age: { $avg: "$age" }}}]).next().average_age
+> avg_alaska
+31.5
+
+3 - Начиная от Math.ceil(avg + avg_alaska) (порядковый номер документа в БД ) найти первого человека с другом по имени Деннис
+> var dennis_friend = db.users.findOne({index: {$gt: Math.ceil(avg + avg_alaska)}, friends: {$elemMatch: {name: /Dennis/g}}})
+> dennis_friend
+{
+        "_id" : ObjectId("5adf3c1544abaca147cdd47c"),
+        "index" : 306,
+        "friends" : [
+                {
+                        "id" : 0,
+                        "name" : "Charles Dennis"
+                },
+                {
+                        "id" : 1,
+                        "name" : "Arlene Walton"
+                },
+                {
+                        "id" : 2,
+                        "name" : "Trisha Long"
+                }
+        ]
+}
+
+4 - Найти активных людей из того же штата, что и предыдущий человек...
+> dennis_friend.address
+659 Oceanic Avenue, Collins, Utah, 6277
+> var active_users = db.users.aggregate([{$match: {isActive: true}}, {$match: {address: new RegExp(dennis_friend.address.split(", ")[2])}}])
+> active_users.pretty()
+{
+        "_id" : ObjectId("5adf3c1544abaca147cdd35b"),
+        "index" : 16,
+        "isActive" : true,
+        "address" : "413 Myrtle Avenue, Blue, Utah, 6715"
+}
+{
+        "_id" : ObjectId("5adf3c1544abaca147cdd39b"),
+        "index" : 74,
+        "isActive" : true,
+        "address" : "735 Fayette Street, Sanford, Utah, 9834"
+}
+{
+        "_id" : ObjectId("5adf3c1544abaca147cdd3d7"),
+        "index" : 132,
+        "isActive" : true,
+        "address" : "198 Meserole Avenue, Geyserville, Utah, 3072"
+}
+{
+        "_id" : ObjectId("5adf3c1544abaca147cdd408"),
+        "index" : 190,
+        "isActive" : true,
+        "address" : "772 Porter Avenue, Richford, Utah, 3055"
+}
+{
+        "_id" : ObjectId("5adf3c1544abaca147cdd443"),
+        "index" : 248,
+        "isActive" : true,
+        "address" : "847 Frank Court, Graball, Utah, 6542"
+}
+{
+        "_id" : ObjectId("5adf3c1544abaca147cdd4b5"),
+        "index" : 364,
+        "isActive" : true,
+        "address" : "275 Knapp Street, Enlow, Utah, 4265"
+}
+{
+        "_id" : ObjectId("5adf3c1544abaca147cdd685"),
+        "index" : 828,
+        "isActive" : true,
+        "address" : "654 Eastern Parkway, Verdi, Utah, 6569"
+}
+
+4 - посмотреть какой фрукт любят больше всего в этом штате (аггрегация)
+> var favourite_fruits = db.users.mapReduce(function(){emit(this.favoriteFruit, 1);}, function(key, values){return Array.sum(values)}, {query: {address: new RegExp(dennis_friend.address.split(", ")[2])}, out: {inline: 1}})
+> favourite_fruits
+{
+        "results" : [
+                {
+                        "_id" : "apple",
+                        "value" : 6
+                },
+                {
+                        "_id" : "banana",
+                        "value" : 6
+                },
+                {
+                        "_id" : "strawberry",
+                        "value" : 3
+                }
+        ],
+        "timeMillis" : 20,
+        "counts" : {
+                "input" : 15,
+                "emit" : 15,
+                "reduce" : 3,
+                "output" : 3
+        },
+        "ok" : 1
+}
+
+> var > favourite_fruit = favourite_fruits.results.sort((obj1, obj2) => obj1.value < obj2.value)[0]._id
+> favourite_fruit
+apple
+
+5 - Найти саммого раннего зарегистрировавшегося пользователя с таким любимым фруктом
+> var old_apple_lover = db.users.find({favoriteFruit: {$eq: favourite_fruit}}).sort({registered: 1}).next()
+> old_apple_lover
+{
+        "_id" : ObjectId("5adf3c1544abaca147cdd568"),
+        "index" : 541,
+        "name" : "Magdalena Compton",
+        "registered" : "2014-01-02T10:16:56 -02:00",
+        "favoriteFruit" : "apple"
+}
+
+6 - Добавить этому пользовелю свойтво: { features: 'first apple eater' }
+> db.users.update({_id: old_apple_lover._id}, {$set: {features: 'first apple eater'}})
+WriteResult({ "nMatched" : 1, "nUpserted" : 0, "nModified" : 1 })
+> db.users.findOne({_id: old_apple_lover._id})
+{
+        "_id" : ObjectId("5adf3c1544abaca147cdd568"),
+        "index" : 541,
+        "name" : "Magdalena Compton",
+        "favoriteFruit" : "apple",
+        "features" : "first apple eater"
+}
+
+7 - Удалить всех любителей клубники (написать количество удаленных пользователей)
+> db.users.deleteMany({"favoriteFruit": "strawberry" })
+{ "acknowledged" : true, "deletedCount" : 253 }
